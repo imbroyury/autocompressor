@@ -25,20 +25,33 @@ const getShouldCompressFile = async (pathToFile) => {
     return fileDate > compressedDate;
 };
 
-const compressFile = pathToFile => {
+const compressFile = (pathToFile) => new Promise((resolve, reject) => {
+    console.log(`Compressing ${pathToFile} ...`);
+
+    const pathToGz = pathToFile + '.gz';
     const gzip = zlib.createGzip();
     const input = fs.createReadStream(pathToFile);
-    const output = fs.createWriteStream(pathToFile + '.gz');
+    const output = fs.createWriteStream(pathToGz);
 
     input
         .pipe(gzip)
-        .on('error', () => console.error(`Error occured while gziping ${pathToFile}`))
+        .on('error', () => {
+            console.error(`Error occured while compressing ${pathToFile}`);
+            reject();
+        })
         .pipe(output)
-        .on('error', () => console.error(`Error occured while saving gzipped ${pathToFile}`));
-};
+        .on('error', () => {
+            console.error(`Error occured while saving compressed ${pathToGz}`);
+            reject();
+        })
+        .on('close', () => {
+            console.log(`${pathToGz} is ready`);
+            resolve();
+        });
+});
 
 const compressDirectory = async (pathToDir) => {
-    console.log(`Compressing contents of ${pathToDir}`);
+    console.log(`Compressing contents of ${pathToDir} ...`);
 
     const dirContents = await fsp.readdir(pathToDir);
 
@@ -47,12 +60,21 @@ const compressDirectory = async (pathToDir) => {
         const isDir = await getIsDir(pathToItem);
         if (isDir) return compressDirectory(pathToItem);
         const shouldCompressFile = await getShouldCompressFile(pathToItem);
-        if (shouldCompressFile) compressFile(pathToItem);
+        if (!shouldCompressFile) console.log(`${pathToItem} doesn't need to be compressed`);
+        if (shouldCompressFile) return compressFile(pathToItem);
     };
 
-    dirContents
-        .filter(item => !item.endsWith('.gz'))
-        .forEach(compressItem);
+    const itemsToCompress = dirContents.filter(item => !item.endsWith('.gz'));
+
+    for (const item of itemsToCompress) {
+        try {
+            await compressItem(item);
+        } catch(e) {
+            console.error(`Error occurred while compressing ${item}`);
+        }
+    }
+
+    console.log(`Contents of ${pathToDir} are compressed`)
 };
 
 (async () => {
