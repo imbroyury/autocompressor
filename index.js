@@ -11,7 +11,7 @@ const getIsDir = async (pathToDir) => {
 const getLastModified = async (pathToFile) => {
     const stats = await fsp.stat(pathToFile);
     return stats.mtimeMs;
-}
+};
 
 const getShouldCompressFile = async (pathToFile) => {
     const pathToCompressed = `${pathToFile}.gz`;
@@ -23,7 +23,7 @@ const getShouldCompressFile = async (pathToFile) => {
     const fileDate = await getLastModified(pathToFile);
     const compressedDate = await getLastModified(pathToCompressed);
     return fileDate > compressedDate;
-}
+};
 
 const compressFile = pathToFile => {
     const gzip = zlib.createGzip();
@@ -35,23 +35,25 @@ const compressFile = pathToFile => {
         .on('error', () => console.error(`Error occured while gziping ${pathToFile}`))
         .pipe(output)
         .on('error', () => console.error(`Error occured while saving gzipped ${pathToFile}`));
-}
+};
 
-const compressFolder = async (pathToDir) => {
+const compressDirectory = async (pathToDir) => {
+    console.log(`Compressing contents of ${pathToDir}`);
+
     const dirContents = await fsp.readdir(pathToDir);
 
-    const processItem = async (item) => {
+    const compressItem = async (item) => {
         const pathToItem = path.join(pathToDir, item);
         const isDir = await getIsDir(pathToItem);
-        if (isDir) return compressFolder(pathToItem);
+        if (isDir) return compressDirectory(pathToItem);
         const shouldCompressFile = await getShouldCompressFile(pathToItem);
         if (shouldCompressFile) compressFile(pathToItem);
     };
 
     dirContents
         .filter(item => !item.endsWith('.gz'))
-        .forEach(processItem)
-}
+        .forEach(compressItem);
+};
 
 (async () => {
     const providedPath = process.argv[2];
@@ -66,5 +68,5 @@ const compressFolder = async (pathToDir) => {
         return console.error(`${absPath} is not a valid path`);
     }
 
-    compressFolder(absPath);
-})()
+    compressDirectory(absPath);
+})();
