@@ -1,23 +1,27 @@
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises;
 const zlib = require('zlib');
 
-const getIsDir = pathToDir => {
-    const stats = fs.statSync(pathToDir);
+const getIsDir = async (pathToDir) => {
+    const stats = await fsp.stat(pathToDir);
     return stats.isDirectory();
 };
 
-const getLastModified = pathToFile => {
-    const stats = fs.statSync(pathToFile);
+const getLastModified = async (pathToFile) => {
+    const stats = await fsp.stat(pathToFile);
     return stats.mtimeMs;
 }
 
-const getShouldCompressFile = pathToFile => {
+const getShouldCompressFile = async (pathToFile) => {
     const pathToCompressed = `${pathToFile}.gz`;
-    const hasCompressed = fs.existsSync(pathToCompressed);
-    if (!hasCompressed) return true;
-    const fileDate = getLastModified(pathToFile);
-    const compressedDate  = getLastModified(pathToCompressed);
+    try {
+        await fsp.stat(pathToCompressed);
+    } catch (e) {
+        return true;
+    }
+    const fileDate = await getLastModified(pathToFile);
+    const compressedDate = await getLastModified(pathToCompressed);
     return fileDate > compressedDate;
 }
 
@@ -28,34 +32,39 @@ const compressFile = pathToFile => {
 
     input
         .pipe(gzip)
-        .pipe(output);
+        .on('error', () => console.error(`Error occured while gziping ${pathToFile}`))
+        .pipe(output)
+        .on('error', () => console.error(`Error occured while saving gzipped ${pathToFile}`));
 }
 
-const compressFolder = (pathToDir) => {
-    const dirContents = fs.readdirSync(pathToDir);
+const compressFolder = async (pathToDir) => {
+    const dirContents = await fsp.readdir(pathToDir);
+
+    const processItem = async (item) => {
+        const pathToItem = path.join(pathToDir, item);
+        const isDir = await getIsDir(pathToItem);
+        if (isDir) return compressFolder(pathToItem);
+        const shouldCompressFile = await getShouldCompressFile(pathToItem);
+        if (shouldCompressFile) compressFile(pathToItem);
+    };
+
     dirContents
         .filter(item => !item.endsWith('.gz'))
-        .forEach(item => {
-            const pathToItem = path.join(pathToDir, item);
-            if (getIsDir(pathToItem)) {
-                compressFolder(pathToItem);
-            } else if (getShouldCompressFile(pathToItem)) {
-                compressFile(pathToItem);
-            }
-        })
+        .forEach(processItem)
 }
 
-(() => {
+(async () => {
     const providedPath = process.argv[2];
     if (providedPath === undefined) {
         return console.error('Please provide a path to a directory');
     }
-    const absPath = path.resolve(providedPath);
-    if (!fs.existsSync(absPath)) {
-        return console.error('Invalid path provided');
+    const absPath = path.resolve(providedPath);4
+    try {
+        const isDir = await getIsDir(absPath);
+        if (!isDir) return console.error(`${absPath} is not a directory`);
+    } catch (e) {
+        return console.error(`${absPath} is not a valid path`);
     }
-    if (!getIsDir(absPath)) {
-        return console.error(`${absPath} is not a directory`);
-    }
+
     compressFolder(absPath);
 })()
